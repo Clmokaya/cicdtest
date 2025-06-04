@@ -1,36 +1,89 @@
-name: Android Firebase App Distribution
+name: Flutter CI/CD with Firebase App Distribution
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
-  build:
-    name: Build & Distribute APK
+  build_and_distribute:
+    name: Build Flutter app and distribute via Firebase App Distribution
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Setup Flutter
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.32.1.'
+          flutter-version: 'stable'
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build APK
+      - name: Run Flutter tests
+        run: flutter test
+
+      - name: Set up Firebase CLI
+        run: |
+          curl -sL https://firebase.tools | bash
+
+      # Authenticate with Firebase CLI using a service account key stored in GitHub secrets
+      - name: Authenticate Firebase
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          echo "$FIREBASE_SERVICE_ACCOUNT" > $HOME/firebase-service-account.json
+          firebase login:ci --token "$(firebase login:ci --no-localhost)" || echo "Already logged in"
+          firebase use --add
+          firebase login:ci --token "$(cat $HOME/firebase-service-account.json)" || echo "Already logged in"
+          firebase auth:ci --token "$(cat $HOME/firebase-service-account.json)"
+        # Actually, above commands are a bit off; better way is to use Firebase CLI with a service account and authenticate via GOOGLE_APPLICATION_CREDENTIALS environment variable.
+
+      # Set up GOOGLE_APPLICATION_CREDENTIALS environment variable for Firebase authentication
+      - name: Set GOOGLE_APPLICATION_CREDENTIALS
+        run: echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" > ${{ runner.temp }}/firebase_key.json
+      - name: Build Android app (release)
         run: flutter build apk --release
 
-      - name: Install Firebase CLI
-        run: npm install -g firebase-tools
-
-      - name: Distribute to Firebase Testers
+      # Upload to Firebase App Distribution
+      - name: Distribute Android App to Firebase App Distribution
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase_key.json
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID_ANDROID }}
+          FIREBASE_TESTERS: ${{ secrets.FIREBASE_TESTERS }}  # comma separated emails or group aliases
+          FIREBASE_GROUPS: ${{ secrets.FIREBASE_GROUPS }}    # optional
         run: |
-          firebase appdistribution:distribute build/app/outputs/flutter-apk/app-release.apk \
-            --app ${{ secrets.FIREBASE_APP_ID }} \
-            --token ${{ secrets.FIREBASE_TOKEN }} \
-            --groups "testers"
-            
+          # Provide the path to the APK generated
+          APK_PATH=build/app/outputs/flutter-apk/app-release.apk
+
+          # Distribute the app
+          firebase appdistribution:distribute $APK_PATH \
+            --app $FIREBASE_APP_ID \
+            --groups $FIREBASE_GROUPS \
+            --testers $FIREBASE_TESTERS \
+            --release-notes "Automated build from GitHub Actions"
+
+      # Optional: build and distribute iOS app if relevant
+      - name: Build iOS app (release)
+        if: runner.os == 'macOS'
+        run: flutter build ipa --release
+
+      - name: Distribute iOS app to Firebase App Distribution
+        if: runner.os == 'macOS'
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase_key.json
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID_IOS }}
+          FIREBASE_TESTERS: ${{ secrets.FIREBASE_TESTERS }}
+          FIREBASE_GROUPS: ${{ secrets.FIREBASE_GROUPS }}
+        run: |
+          IPA_PATH=build/ios/ipa/*.ipa
+
+          firebase appdistribution:distribute $IPA_PATH \
+            --app $FIREBASE_APP_ID \
+            --groups $FIREBASE_GROUPS \
+            --testers $FIREBASE_TESTERS \
+            --release-notes "Automated iOS build from GitHub Actions"
