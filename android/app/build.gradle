@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.cmmapps.cicdtest"
+    namespace = "com.cmmapps"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
