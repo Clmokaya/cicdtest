@@ -16,14 +16,22 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
-         flutter-version: '3.32.1'
+          flutter-version: '3.32.1' # Pinning to a specific version for consistency
 
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Run Flutter tests # Recommended: Add testing before building
+        run: flutter test
+
       - name: Build APK
         run: flutter build apk --release
+
+      - name: Upload APK artifact # Recommended: Upload APK for easy download
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
 
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
